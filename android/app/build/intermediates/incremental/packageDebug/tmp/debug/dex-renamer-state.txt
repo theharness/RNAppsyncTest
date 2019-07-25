@@ -1,0 +1,4 @@
+#Wed Jul 24 11:26:35 MDT 2019
+base.0=/Users/connorharness/GitHub/RNAppsyncTest/android/app/build/intermediates/transforms/dexMerger/debug/0
+path.0=classes.dex
+renamed.0=classes.dex

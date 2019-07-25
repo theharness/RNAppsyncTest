@@ -1,0 +1,180 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  AppSyncTestUserPool:
+    Type: 'AWS::Cognito::UserPool'
+    Properties:
+      UserPoolName: appsync-test-pool
+      AutoVerifiedAttributes:
+        - email
+  AppSyncTestUserPoolClient:
+    Type: 'AWS::Cognito::UserPoolClient'
+    Properties:
+      ClientName: AppSyncTest
+      UserPoolId: !Ref AppSyncTestUserPool
+      GenerateSecret: false
+      RefreshTokenValidity: 3650
+    DependsOn:
+      - AppSyncTestUserPool
+  AppSyncTestIdentityPool:
+    Type: 'AWS::Cognito::IdentityPool'
+    Properties:
+      IdentityPoolName: AppSyncTest
+      CognitoIdentityProviders: 
+        - ClientId: !Ref AppSyncTestUserPoolClient
+          ProviderName: !GetAtt
+            - AppSyncTestUserPool
+            - ProviderName
+      AllowUnauthenticatedIdentities: true
+    DependsOn:
+      - AppSyncTestUserPoolClient
+  AppSyncTestAuthRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action:
+              - 'sts:AssumeRoleWithWebIdentity'
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref AppSyncTestIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+        - PolicyName: appsync-test-auth-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'appsync:GraphQL'
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - 'mobileanalytics:PutEvents'
+                  - 'cognito-sync:*'
+                  - 'cognito-identity:*'
+                Resource:
+                  - '*'
+  AppSyncTestUnauthRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action:
+              - 'sts:AssumeRoleWithWebIdentity'
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref AppSyncTestIdentityPool
+              'ForAnyValue:StringLike':
+                'cognito-identity.amazonaws.com:amr': unauthenticated
+      Policies:
+        - PolicyName: appsync-test-auth-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'appsync:GraphQL'
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - 'mobileanalytics:PutEvents'
+                  - 'cognito-sync:*'
+                  - 'cognito-identity:*'
+                Resource:
+                  - '*'
+    DependsOn:
+      - AppSyncTestIdentityPool
+  AppSyncTestIdentityPoolRoleAttatchment:
+    Type: 'AWS::Cognito::IdentityPoolRoleAttachment'
+    Properties:
+      IdentityPoolId: !Ref AppSyncTestIdentityPool
+      Roles:
+        authenticated: !GetAtt
+          - AppSyncTestAuthRole
+          - Arn
+        unauthenticated: !GetAtt
+          - AppSyncTestUnauthRole
+          - Arn
+    DependsOn:
+      - AppSyncTestIdentityPool
+  Api:
+    Type: 'AWS::AppSync::GraphQLApi'
+    Properties:
+      Name: test-api
+      AuthenticationType: AWS_IAM
+  Schema:
+    Type: 'AWS::AppSync::GraphQLSchema'
+    DependsOn:
+      - Api
+    Properties:
+      ApiId: !GetAtt
+        - Api
+        - ApiId
+      Definition: |
+        type Mutation {
+          testMutation(string: String!): TestString
+        }
+        type Query {
+          testQuery(string: String!): TestString
+        }
+        type Subscription {
+          onTestMutations: TestString
+          @aws_subscribe(mutations: ["testMutation"])
+        }
+        type TestString {
+          value: String!
+        }
+        schema {
+          query: Query
+          mutation: Mutation
+          subscription: Subscription
+        }
+  
+  LocalResolverDataSource:
+    Type: 'AWS::AppSync::DataSource'
+    DependsOn:
+      - Api
+    Properties:
+      Type: NONE
+      ApiId: !GetAtt
+        - Api
+        - ApiId
+      Name: local_resolver
+
+  TestResolver:
+    Type: 'AWS::AppSync::Resolver'
+    DependsOn:
+      - Schema
+      - Api
+    Properties:
+      TypeName: Mutation
+      DataSourceName: !GetAtt
+        - LocalResolverDataSource
+        - Name
+      ApiId: !GetAtt
+        - Api
+        - ApiId
+      FieldName: testMutation
+      ResponseMappingTemplate: |
+        $util.toJson($ctx.result)
+      RequestMappingTemplate: |
+        {
+            "version" : "2017-02-28",
+            "payload": {
+              "value": "testing 1234"
+            }
+        }
+  
+
+Parameters: {}
